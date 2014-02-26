@@ -1,0 +1,5 @@
+platform :ios, '7.0'
+
+link_with ['TestImageCacheApp', 'TestImageCacheAppTests']
+
+pod 'GFImageCache', :path => "../GFImageCache"
