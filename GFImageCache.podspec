@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name = 'GFImageCache'
-  s.version = '0.0.1'
+  s.version = '0.0.2'
   s.platform = :ios
   s.ios.deployment_target = '5.0'
   s.prefix_header_file = 'GFImageCache/GFImageCache/GFImageCache-Prefix.pch'
