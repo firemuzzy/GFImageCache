@@ -35,6 +35,7 @@
     NSData *expectedData = UIImagePNGRepresentation(expectedImage);
     
     GFImageCache *cache = [[GFImageCache alloc] init];
+    [cache setLogging:YES];
     
     RACSignal *downloaded1 = [cache imageForUrl:IMAGE_URL];
     RACSignal *downloaded2 = [cache imageForUrl:IMAGE_URL];
@@ -58,6 +59,9 @@
     [downloaded1 asynchronouslyWaitUntilCompleted:nil];
     [downloaded2 asynchronouslyWaitUntilCompleted:nil];
     [downloaded3 asynchronouslyWaitUntilCompleted:nil];
+    
+    XCTAssertEqualObjects(downloaded1, downloaded2, @"recieved different signals for thesame image download");
+    XCTAssertEqualObjects(downloaded1, downloaded3, @"recieved different signals for thesame image download");
 }
 
 #define IMAGE_BAD_URL @"http://www.gitflub.io/nonexistantimage.png"
@@ -65,6 +69,7 @@
 - (void)testInvalidImageDownloading
 {
     GFImageCache *cache = [[GFImageCache alloc] init];
+    [cache setLogging:YES];
     
     RACSignal *downloaded1 = [cache imageForUrl:IMAGE_BAD_URL];
     RACSignal *downloaded2 = [cache imageForUrl:IMAGE_BAD_URL];

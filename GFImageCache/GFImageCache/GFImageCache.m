@@ -8,7 +8,6 @@
 
 #import "GFImageCache.h"
 #import <ReactiveCocoa.h>
-#import "AsyncImageDownloader.h"
 
 NSString * const GFImageCacheErrorDomain = @"GFImageCacheErrorDomain";
 const NSInteger GFImageCacheMiss = 1001;
@@ -18,6 +17,7 @@ const NSInteger GFImageCacheMiss = 1001;
 @property (nonatomic, strong, readonly) NSCache *imgCache;
 @property (nonatomic, strong, readonly) NSCache *signalCache;
 
+@property (atomic, assign) BOOL loggingEnabled;
 
 @end
 
@@ -35,6 +35,10 @@ static GFImageCache *sharedInstance = nil;
     });
     
     return sharedInstance;
+}
+
+- (void)setLogging:(BOOL)loggingEnabled {
+    self.loggingEnabled = loggingEnabled;
 }
 
 - (GFImageCache *) init {
@@ -57,26 +61,60 @@ static GFImageCache *sharedInstance = nil;
     }
     
     @synchronized(self) {
-        RACSignal *sig = [[RACSignal createSignal:^RACDisposable *(id<RACSubscriber> subscriber) {
-            [[[AsyncImageDownloader alloc] initWithMediaURL:url successBlock:^(UIImage *downloadedImage) {
-                [self.imgCache setObject:downloadedImage forKey:url];
-                [self.signalCache removeObjectForKey:url];
-                
-                [subscriber sendNext:downloadedImage];
-                [subscriber sendCompleted];
-            } failBlock:^(NSError *error) {
-                [self.signalCache removeObjectForKey:url];
-                
-                [subscriber sendError:error];
-            }] startDownload];
-            
-            return [RACDisposable disposableWithBlock:^{
-                // do nothing
-                // TODO: tweak the image async donlowder to get the connection
-            }];
-        }] replayLazily];
+        RACSignal *sig = [[self downloadImageFromURL:url] replayLazily];
         [_signalCache setObject:sig forKey:url];
+
+        [sig subscribeNext:^(UIImage *downloadedImage) {
+            [self.imgCache setObject:downloadedImage forKey:url];
+            [self.signalCache removeObjectForKey:url];
+        } error:^(NSError *error) {
+            [self.signalCache removeObjectForKey:url];
+        }];
         return sig;
+    }
+}
+
+-(RACSignal *)downloadImageFromURL:(NSString *)url {
+    NSURLRequest *request = [NSURLRequest requestWithURL:[NSURL URLWithString:url]];
+    
+    // another configuration option is backgroundSessionConfiguration (multitasking API required though)
+    NSURLSessionConfiguration *configuration = [NSURLSessionConfiguration ephemeralSessionConfiguration];
+    
+    // create the session without specifying a queue to run completion handler on (thus, not main queue)
+    // we also don't specify a delegate (since completion handler is all we need)
+    NSURLSession *session = [NSURLSession sessionWithConfiguration:configuration];
+    
+    return [RACSignal createSignal:^RACDisposable *(id<RACSubscriber> subscriber) {
+        NSURLSessionDownloadTask *task = [session downloadTaskWithRequest:request
+            completionHandler:^(NSURL *localfile, NSURLResponse *response, NSError *error) {
+                // this handler is not executing on the main queue, so we can't do UI directly here
+                if (!error) {
+                    [self logSuccessfromUrl:url];
+                    UIImage *image = [UIImage imageWithData:[NSData dataWithContentsOfURL:localfile]];
+                    [subscriber sendNext:image];
+                    [subscriber sendCompleted];
+                } else {
+                    [self logError:error fromUrl:url];
+                    [subscriber sendError:error];
+                }
+        }];
+        [task resume]; // don't forget that all NSURLSession tasks start out suspended!
+        
+        return [RACDisposable disposableWithBlock:^{
+            [task cancel];
+        }];
+    }];
+}
+
+- (void)logError:(NSError *)error fromUrl:(NSString *)url {
+    if(self.loggingEnabled) {
+        NSLog(@"Failed to donwload image from %@ error:%@", url, error.localizedDescription);
+    }
+}
+
+- (void)logSuccessfromUrl:(NSString *)url {
+    if(self.loggingEnabled) {
+        NSLog(@"Donwload image from url:%@", url);
     }
 }
 

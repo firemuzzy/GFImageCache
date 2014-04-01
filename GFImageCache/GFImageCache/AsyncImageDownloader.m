@@ -6,6 +6,7 @@
 //
 
 #import "AsyncImageDownloader.h"
+#import <ReactiveCocoa.h>
 
 @implementation AsyncImageDownloader
 
@@ -50,7 +51,7 @@
         request = [NSURLRequest requestWithURL:[NSURL URLWithString:fileURL]];
     else
         request = [NSURLRequest requestWithURL:[NSURL URLWithString:mediaURL]];
-    
+
     NSURLConnection *connection = [[NSURLConnection alloc] initWithRequest:request delegate:self startImmediately:YES];
     if(!connection)
     {

@@ -13,6 +13,7 @@
 
 + (GFImageCache *)sharedInstance;
 
+- (void)setLogging:(BOOL)loggingEnabled;
 - (RACSignal *)imageForUrl:(NSString *)url;
 
 @end
