@@ -50,6 +50,8 @@ static GFImageCache *sharedInstance = nil;
 }
 
 - (RACSignal *)imageForUrl:(NSString *)url {
+    if(url == nil) return [RACSignal return:nil];
+    
     UIImage *found = [self.imgCache objectForKey:url];
     if(found) {
         return [RACSignal return:found];
@@ -75,6 +77,8 @@ static GFImageCache *sharedInstance = nil;
 }
 
 -(RACSignal *)downloadImageFromURL:(NSString *)url {
+    NSParameterAssert(url != nil);
+    
     NSURLRequest *request = [NSURLRequest requestWithURL:[NSURL URLWithString:url]];
     
     // another configuration option is backgroundSessionConfiguration (multitasking API required though)
