@@ -12,6 +12,28 @@
 NSString * const GFImageCacheErrorDomain = @"GFImageCacheErrorDomain";
 const NSInteger GFImageCacheMiss = 1001;
 
+
+@interface GFImageContainer : NSObject
+
+@property (nonatomic, strong, readonly) UIImage *image;
+@property (nonatomic, strong, readonly) NSDate *fetchedOn;
+
+- (instancetype)initWithImage:(UIImage *)image;
+
+@end
+
+@implementation GFImageContainer
+
+- (instancetype)initWithImage:(UIImage *)image {
+    if(self = [super init]) {
+        _image = image;
+        _fetchedOn = [NSDate date];
+    }
+    return self;
+}
+
+@end
+
 @interface GFImageCache ()
 
 @property (nonatomic, strong, readonly) NSCache *imgCache;
@@ -49,28 +71,51 @@ static GFImageCache *sharedInstance = nil;
     return self;
 }
 
+- (RACSignal *)_fromSignalNSCacheForUrl:(NSString *)url {
+    RACSignal *foundSignal = [self.signalCache objectForKey:url];
+    if(foundSignal) {
+        [self log:[NSString stringWithFormat:@"Fetched url %@ from signal cahce", url]];
+        return foundSignal;
+    }
+    else return nil;
+}
+- (GFImageContainer *)_fromImageNSCacheForUrl:(NSString *)url {
+    GFImageContainer *container = [self.imgCache objectForKey:url];
+    if(container) {
+        [self log:[NSString stringWithFormat:@"Fetched url %@ from image cache", url]];
+    }
+    
+    return container;
+}
+
 - (RACSignal *)imageForUrl:(NSString *)url {
     if(url == nil) return [RACSignal return:nil];
     
-    UIImage *found = [self.imgCache objectForKey:url];
-    if(found) {
-        return [RACSignal return:found];
-    }
+    GFImageContainer *found = [self _fromImageNSCacheForUrl:url];
+    if(found) { return [RACSignal return:found.image]; }
     
-    RACSignal *foundSignal = [self.signalCache objectForKey:url];
-    if(foundSignal) {
-        return foundSignal;
-    }
+    RACSignal *foundSignal = [self _fromSignalNSCacheForUrl:url];
+    if(foundSignal) { return foundSignal; }
     
     @synchronized(self) {
+        // double check because of synchronization
+        GFImageContainer *found = [self _fromImageNSCacheForUrl:url];
+        if(found) { return [RACSignal return:found.image]; }
+        
+        RACSignal *foundSignal = [self _fromSignalNSCacheForUrl:url];
+        if(foundSignal) { return foundSignal; }
+        
+        
         RACSignal *sig = [[self downloadImageFromURL:url] replayLazily];
         [_signalCache setObject:sig forKey:url];
-
+        
+        __weak GFImageCache *weakSelf = self;
         [sig subscribeNext:^(UIImage *downloadedImage) {
-            [self.imgCache setObject:downloadedImage forKey:url];
-            [self.signalCache removeObjectForKey:url];
+            GFImageContainer *container = [[GFImageContainer alloc] initWithImage:downloadedImage];
+            [weakSelf.imgCache setObject:container forKey:url];
+            [weakSelf.signalCache removeObjectForKey:url];
         } error:^(NSError *error) {
-            [self.signalCache removeObjectForKey:url];
+            [weakSelf.signalCache removeObjectForKey:url];
         }];
         return sig;
     }
@@ -88,26 +133,28 @@ static GFImageCache *sharedInstance = nil;
     // we also don't specify a delegate (since completion handler is all we need)
     NSURLSession *session = [NSURLSession sessionWithConfiguration:configuration];
     
-    return [RACSignal createSignal:^RACDisposable *(id<RACSubscriber> subscriber) {
+    return [[RACSignal createSignal:^RACDisposable *(id<RACSubscriber> subscriber) {
+        [self log:[NSString stringWithFormat:@"Downloading image from url %@", url]];
+        
         NSURLSessionDownloadTask *task = [session downloadTaskWithRequest:request
-            completionHandler:^(NSURL *localfile, NSURLResponse *response, NSError *error) {
-                // this handler is not executing on the main queue, so we can't do UI directly here
-                if (!error) {
-                    [self logSuccessfromUrl:url];
-                    UIImage *image = [UIImage imageWithData:[NSData dataWithContentsOfURL:localfile]];
-                    [subscriber sendNext:image];
-                    [subscriber sendCompleted];
-                } else {
-                    [self logError:error fromUrl:url];
-                    [subscriber sendError:error];
-                }
-        }];
+                                                        completionHandler:^(NSURL *localfile, NSURLResponse *response, NSError *error) {
+                                                            // this handler is not executing on the main queue, so we can't do UI directly here
+                                                            if (!error) {
+                                                                [self logSuccessfromUrl:url withFileURL:localfile];
+                                                                UIImage *image = (localfile == nil) ? nil : [UIImage imageWithData:[NSData dataWithContentsOfURL:localfile]];
+                                                                [subscriber sendNext:image];
+                                                                [subscriber sendCompleted];
+                                                            } else {
+                                                                [self logError:error fromUrl:url];
+                                                                [subscriber sendError:error];
+                                                            }
+                                                        }];
         [task resume]; // don't forget that all NSURLSession tasks start out suspended!
         
         return [RACDisposable disposableWithBlock:^{
             [task cancel];
         }];
-    }];
+    }] replayLazily];
 }
 
 - (void)logError:(NSError *)error fromUrl:(NSString *)url {
@@ -116,9 +163,15 @@ static GFImageCache *sharedInstance = nil;
     }
 }
 
-- (void)logSuccessfromUrl:(NSString *)url {
+- (void)logSuccessfromUrl:(NSString *)url withFileURL:(NSURL *)localfileUrl {
     if(self.loggingEnabled) {
-        NSLog(@"Donwload image from url:%@", url);
+        NSLog(@"Donwloaded image from url:%@ sucesfully to %@", url, [localfileUrl absoluteString]);
+    }
+}
+
+- (void)log:(NSString *)message {
+    if(self.loggingEnabled) {
+        NSLog(@"%@", message);
     }
 }
 

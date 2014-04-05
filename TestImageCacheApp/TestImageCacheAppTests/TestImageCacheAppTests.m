@@ -29,8 +29,22 @@
 
 #define IMAGE_URL @"http://en.gravatar.com/userimage/61856994/12ed711637f791fc719d53198cde768a.png?size=200"
 
-- (void)testImageDownloadingNil
+- (void)testImageDownloadingNilUrl
 {
+    GFImageCache *cache = [[GFImageCache alloc] init];
+    [cache setLogging:YES];
+    
+    RACSignal *downloaded1 = [cache imageForUrl:nil];
+    
+    [downloaded1 subscribeNext:^(UIImage *image) {
+        NSData *data = UIImagePNGRepresentation(image);
+        XCTAssertNil(data, @"nil url does not provide nil data");
+    }];
+    
+    [downloaded1 asynchronouslyWaitUntilCompleted:nil];
+}
+
+- (void)testDownloadingAUrlThatHasNoImage {
     GFImageCache *cache = [[GFImageCache alloc] init];
     [cache setLogging:YES];
     
